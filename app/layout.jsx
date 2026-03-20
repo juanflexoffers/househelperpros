@@ -1,13 +1,12 @@
-import Link from "next/link";
+import "./globals.css";
 
-function ZipCta() {
-  return (
-    <form className="grid" style={{ gridTemplateColumns: "1fr auto", gap: 12, maxWidth: 520 }}><input className="input" name="zip" inputMode="numeric" placeholder="Enter ZIP code" aria-label="ZIP code" /><button className="btn primary" type="submit">Get Roofing Quotes</button></form>
-  );
-}
+export const metadata = {
+  title: "HouseHelperPros - Find the Best Pros in Your Area",
+  description: "Compare quotes and book home projects with trusted local professionals.",
+};
 
-export default function Page() {
+export default function RootLayout({ children }) {
   return (
-    <main><div className="section"><div className="container"><Link href="/" style={{ color: "var(--muted)" }}>← Back</Link><h1 className="h1" style={{ fontSize: 42 }}>Roofing Pros Near You</h1><p className="p">Compare quotes from local Roofing professionals in your area.</p><div style={{ marginTop: 18 }}><ZipCta /></div></div></div></main>
+    <html lang="en"><body>{children}</body></html>
   );
 }
