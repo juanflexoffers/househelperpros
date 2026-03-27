@@ -5,7 +5,10 @@ export const runtime = "nodejs";
 // Minimal proxy to fetch Pros + widgets.requestFlowURL.
 // IMPORTANT: Do not log or persist any lead data. This endpoint only returns Pro metadata.
 
-const THUMBTACK_BASE_URL = process.env.THUMBTACK_BASE_URL || "https://developers.thumbtack.com";
+// NOTE: developers.thumbtack.com is the docs site (not the API host). A 404 HTML page usually means
+// we're hitting the wrong host/path.
+const THUMBTACK_API_BASE_URL =
+  process.env.THUMBTACK_API_BASE_URL || process.env.THUMBTACK_BASE_URL || "";
 
 function requireEnv(name: string) {
   const v = process.env[name];
@@ -15,8 +18,24 @@ function requireEnv(name: string) {
 
 export async function GET(request: Request) {
   try {
-    const clientId = requireEnv("THUMBTACK_CLIENT_ID");
-    const clientSecret = requireEnv("THUMBTACK_CLIENT_SECRET");
+    if (!THUMBTACK_API_BASE_URL) {
+      throw new Error(
+        "Missing THUMBTACK_API_BASE_URL (Thumbtack API host). developers.thumbtack.com is docs-only."
+      );
+    }
+
+    // Preferred auth (if Thumbtack provided an access token)
+    const accessToken = (process.env.THUMBTACK_ACCESS_TOKEN || "").trim();
+
+    // Back-compat: if only client credentials were provided, we *may* still be able to use Basic.
+    const clientId = (process.env.THUMBTACK_CLIENT_ID || "").trim();
+    const clientSecret = (process.env.THUMBTACK_CLIENT_SECRET || "").trim();
+
+    if (!accessToken && (!clientId || !clientSecret)) {
+      throw new Error(
+        "Missing auth. Set THUMBTACK_ACCESS_TOKEN (preferred) or THUMBTACK_CLIENT_ID + THUMBTACK_CLIENT_SECRET."
+      );
+    }
 
     const { searchParams } = new URL(request.url);
     const query = searchParams.get("query") || "";
@@ -30,19 +49,25 @@ export async function GET(request: Request) {
     }
 
     // Thumbtack docs call out /businesses/search returning widgets.requestFlowURL.
-    // We pass through query params; exact schema may vary by Thumbtack account.
-    const url = new URL("/api/v1/businesses/search", THUMBTACK_BASE_URL);
+    // Exact path/version may vary by account; we keep it configurable via base URL.
+    const url = new URL("/businesses/search", THUMBTACK_API_BASE_URL);
     if (query) url.searchParams.set("query", query);
     if (zip) url.searchParams.set("zip_code", zip);
 
-    const auth = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
+    const headers: Record<string, string> = {
+      Accept: "application/json",
+    };
+
+    if (accessToken) {
+      headers.Authorization = `Bearer ${accessToken}`;
+    } else {
+      const auth = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
+      headers.Authorization = `Basic ${auth}`;
+    }
 
     const resp = await fetch(url.toString(), {
       method: "GET",
-      headers: {
-        Authorization: `Basic ${auth}`,
-        Accept: "application/json",
-      },
+      headers,
       cache: "no-store",
     });
 
