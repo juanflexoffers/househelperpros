@@ -7,8 +7,30 @@ export const runtime = "nodejs";
 
 // NOTE: developers.thumbtack.com is the docs site (not the API host). A 404 HTML page usually means
 // we're hitting the wrong host/path.
-const THUMBTACK_API_BASE_URL =
+const THUMBTACK_API_BASE_URL_RAW =
   process.env.THUMBTACK_API_BASE_URL || process.env.THUMBTACK_BASE_URL || "";
+
+function normalizeBaseUrl(raw: string) {
+  const trimmed = (raw || "").trim();
+  if (!trimmed) return "";
+  // Avoid surprises when building URLs with `new URL(path, base)`.
+  return trimmed.replace(/\/+$/, "");
+}
+
+function assertNoDoubleApiPrefix(baseUrl: string) {
+  // If we keep the base URL to the host (recommended), code appends /api/v4.
+  // If someone sets base URL including /api/v4, we should fail loudly instead of
+  // making calls to /api/v4/api/v4/... and getting confusing 404s.
+  const u = new URL(baseUrl);
+  const p = u.pathname.replace(/\/+$/, "");
+  if (p.endsWith("/api/v4")) {
+    throw new Error(
+      "THUMBTACK_API_BASE_URL should be the host only (e.g. https://staging-api.thumbtack.com). Do not include /api/v4."
+    );
+  }
+}
+
+const THUMBTACK_API_BASE_URL = normalizeBaseUrl(THUMBTACK_API_BASE_URL_RAW);
 
 function requireEnv(name: string) {
   const v = process.env[name];
@@ -23,6 +45,8 @@ export async function GET(request: Request) {
         "Missing THUMBTACK_API_BASE_URL (Thumbtack API host). developers.thumbtack.com is docs-only."
       );
     }
+
+    assertNoDoubleApiPrefix(THUMBTACK_API_BASE_URL);
 
     // Preferred auth (if Thumbtack provided an access token)
     const accessToken = (process.env.THUMBTACK_ACCESS_TOKEN || "").trim();
@@ -49,8 +73,8 @@ export async function GET(request: Request) {
     }
 
     // Thumbtack docs call out /businesses/search returning widgets.requestFlowURL.
-    // Exact path/version may vary by account; we keep it configurable via base URL.
-    const url = new URL("/businesses/search", THUMBTACK_API_BASE_URL);
+    // Their current Partner Platform is versioned under /api/v4.
+    const url = new URL("/api/v4/businesses/search", THUMBTACK_API_BASE_URL);
     if (query) url.searchParams.set("query", query);
     if (zip) url.searchParams.set("zip_code", zip);
 
@@ -71,6 +95,8 @@ export async function GET(request: Request) {
       cache: "no-store",
     });
 
+    const contentType = resp.headers.get("content-type") || "";
+
     const text = await resp.text();
     let data: any = null;
     try {
@@ -80,11 +106,26 @@ export async function GET(request: Request) {
     }
 
     if (!resp.ok) {
+      // Guardrail: if we ever get HTML back, we likely hit the docs site or wrong host.
+      const looksLikeHtml =
+        contentType.toLowerCase().includes("text/html") ||
+        /^\s*</.test(text);
+
+      // Safe to log request metadata only (no lead data).
+      console.warn("[thumbtack] non-2xx", {
+        status: resp.status,
+        url: url.toString(),
+        contentType,
+        looksLikeHtml,
+      });
+
       return NextResponse.json(
         {
           ok: false,
           status: resp.status,
           error: "Thumbtack request failed",
+          contentType,
+          looksLikeHtml,
           body: data ?? text,
         },
         { status: 502, headers: { "Cache-Control": "no-store" } }
