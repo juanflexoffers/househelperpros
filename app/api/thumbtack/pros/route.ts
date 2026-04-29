@@ -74,13 +74,18 @@ export async function GET(request: Request) {
 
     // Thumbtack docs call out /businesses/search returning widgets.requestFlowURL.
     // Their current Partner Platform is versioned under /api/v4.
+    // Note: this endpoint is **POST** on the Partner Platform (GET returns 405).
     const url = new URL("/api/v4/businesses/search", THUMBTACK_API_BASE_URL);
-    if (query) url.searchParams.set("query", query);
-    if (zip) url.searchParams.set("zip_code", zip);
 
     const headers: Record<string, string> = {
       Accept: "application/json",
+      "Content-Type": "application/json",
     };
+
+    const body = JSON.stringify({
+      ...(query ? { query } : {}),
+      ...(zip ? { zip_code: zip } : {}),
+    });
 
     if (accessToken) {
       headers.Authorization = `Bearer ${accessToken}`;
@@ -90,8 +95,9 @@ export async function GET(request: Request) {
     }
 
     const resp = await fetch(url.toString(), {
-      method: "GET",
+      method: "POST",
       headers,
+      body,
       cache: "no-store",
     });
 
@@ -119,6 +125,8 @@ export async function GET(request: Request) {
         looksLikeHtml,
       });
 
+      // Prefer surfacing the upstream HTTP status to the client.
+      // (We still include the upstream status in JSON for convenience.)
       return NextResponse.json(
         {
           ok: false,
@@ -128,7 +136,7 @@ export async function GET(request: Request) {
           looksLikeHtml,
           body: data ?? text,
         },
-        { status: 502, headers: { "Cache-Control": "no-store" } }
+        { status: resp.status, headers: { "Cache-Control": "no-store" } }
       );
     }
 
