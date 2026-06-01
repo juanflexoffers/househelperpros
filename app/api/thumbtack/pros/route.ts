@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getAccessToken } from "../../../lib/thumbtack-auth";
 
 export const runtime = "nodejs";
 
@@ -25,18 +26,12 @@ function assertNoDoubleApiPrefix(baseUrl: string) {
   const p = u.pathname.replace(/\/+$/, "");
   if (p.endsWith("/api/v4")) {
     throw new Error(
-      "THUMBTACK_API_BASE_URL should be the host only (e.g. https://staging-api.thumbtack.com). Do not include /api/v4."
+      "THUMBTACK_API_BASE_URL should be the host only (e.g. https://staging-pro-api.thumbtack.com). Do not include /api/v4."
     );
   }
 }
 
 const THUMBTACK_API_BASE_URL = normalizeBaseUrl(THUMBTACK_API_BASE_URL_RAW);
-
-function requireEnv(name: string) {
-  const v = process.env[name];
-  if (!v || v.trim() === "") throw new Error(`Missing env var: ${name}`);
-  return v;
-}
 
 export async function GET(request: Request) {
   try {
@@ -47,19 +42,6 @@ export async function GET(request: Request) {
     }
 
     assertNoDoubleApiPrefix(THUMBTACK_API_BASE_URL);
-
-    // Preferred auth (if Thumbtack provided an access token)
-    const accessToken = (process.env.THUMBTACK_ACCESS_TOKEN || "").trim();
-
-    // Back-compat: if only client credentials were provided, we *may* still be able to use Basic.
-    const clientId = (process.env.THUMBTACK_CLIENT_ID || "").trim();
-    const clientSecret = (process.env.THUMBTACK_CLIENT_SECRET || "").trim();
-
-    if (!accessToken && (!clientId || !clientSecret)) {
-      throw new Error(
-        "Missing auth. Set THUMBTACK_ACCESS_TOKEN (preferred) or THUMBTACK_CLIENT_ID + THUMBTACK_CLIENT_SECRET."
-      );
-    }
 
     const { searchParams } = new URL(request.url);
     const query = searchParams.get("query") || "";
@@ -73,31 +55,27 @@ export async function GET(request: Request) {
       );
     }
 
+    // OAuth2 client_credentials exchange. getAccessToken caches in memory
+    // until the token's TTL (typically 3600s) minus a 60s buffer.
+    const accessToken = await getAccessToken();
+
     // Thumbtack docs call out /businesses/search returning widgets.requestFlowURL.
     // Their current Partner Platform is versioned under /api/v4.
     // Note: this endpoint is **POST** on the Partner Platform (GET returns 405).
     const url = new URL("/api/v4/businesses/search", THUMBTACK_API_BASE_URL);
-
-    const headers: Record<string, string> = {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-    };
 
     const body = JSON.stringify({
       ...(query ? { query } : {}),
       ...(zip ? { zip_code: zip } : {}),
     });
 
-    if (accessToken) {
-      headers.Authorization = `Bearer ${accessToken}`;
-    } else {
-      const auth = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
-      headers.Authorization = `Basic ${auth}`;
-    }
-
     const resp = await fetch(url.toString(), {
       method: "POST",
-      headers,
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
       body,
       cache: "no-store",
     });
