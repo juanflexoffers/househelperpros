@@ -64,6 +64,7 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const query = searchParams.get("query") || "";
     const zip = searchParams.get("zip") || "";
+    const clickId = (searchParams.get("clickId") || "").trim();
 
     if (!query && !zip) {
       return NextResponse.json(
@@ -138,6 +139,27 @@ export async function GET(request: Request) {
         },
         { status: resp.status, headers: { "Cache-Control": "no-store" } }
       );
+    }
+
+    // Decorate each pro's Request Flow URL with attribution params so Thumbtack
+    // reports back the FlexOffers ClickID for each lead. utm_content carries
+    // the ClickID; utm_campaign carries the category (or "general").
+    if (data && Array.isArray(data.data)) {
+      const utmCampaign = query || "general";
+      for (const pro of data.data) {
+        const raw = pro?.widgets?.requestFlowURL;
+        if (typeof raw !== "string" || !raw) continue;
+        try {
+          const u = new URL(raw);
+          u.searchParams.set("utm_source", "househelperpros");
+          u.searchParams.set("utm_medium", "flexoffers");
+          u.searchParams.set("utm_campaign", utmCampaign);
+          if (clickId) u.searchParams.set("utm_content", clickId);
+          pro.widgets.requestFlowURL = u.toString();
+        } catch {
+          // Leave URL untouched if Thumbtack ever returns a non-URL value.
+        }
+      }
     }
 
     // Do not log response body; return to client.

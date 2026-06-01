@@ -79,6 +79,7 @@ export default function ThumbtackRequestFlowModal({ pro, open, onClose }) {
             title="Thumbtack Request Flow"
             src={src}
             style={{ width: "100%", height: "100%", border: 0 }}
+            sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
             referrerPolicy="no-referrer"
           />
         ) : (
