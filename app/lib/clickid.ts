@@ -1,7 +1,9 @@
-// Captures and persists the FlexOffers ClickID (`?fobs=`) so it can be
-// forwarded to Thumbtack as `utm_content` for lead attribution.
+// Captures and persists the FlexOffers ClickID so it can be forwarded to
+// Thumbtack as `utm_content` for lead attribution. FlexOffers appends the
+// ClickID as `?refid=` (confirmed 2026-06); we also accept a few legacy
+// param names and take the first one present.
 
-const PARAM = "fobs";
+const PARAMS = ["refid", "fobs", "clickid"];
 const STORAGE_KEY = "hhp_clickid";
 const COOKIE_NAME = "hhp_clickid";
 const COOKIE_MAX_AGE_DAYS = 90;
@@ -9,10 +11,14 @@ const COOKIE_MAX_AGE_DAYS = 90;
 export function captureFromUrl(): string | null {
   if (typeof window === "undefined") return null;
   const params = new URLSearchParams(window.location.search);
-  const value = params.get(PARAM)?.trim();
-  if (!value) return null;
-  persist(value);
-  return value;
+  for (const param of PARAMS) {
+    const value = params.get(param)?.trim();
+    if (value) {
+      persist(value);
+      return value;
+    }
+  }
+  return null;
 }
 
 export function getClickId(): string {
