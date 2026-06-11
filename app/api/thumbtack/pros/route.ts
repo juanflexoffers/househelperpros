@@ -70,8 +70,12 @@ export async function GET(request: Request) {
     const utmCampaign = query || "general";
     // Thumbtack quirk: the top-level fields are camelCase (zipCode, utmData)
     // but the keys *inside* utmData are snake_case (utm_source, ...).
+    // utm_source must match Thumbtack's partner-source pattern
+    // ^cma-[a-zA-Z0-9-_]+$ — Thumbtack assigns this code. Override the value
+    // via THUMBTACK_UTM_SOURCE once Thumbtack provides the real one.
+    const utmSource = (process.env.THUMBTACK_UTM_SOURCE || "cma-househelperpros").trim();
     const utmData: Record<string, string> = {
-      utm_source: "househelperpros",
+      utm_source: utmSource,
       utm_medium: "flexoffers",
       utm_campaign: utmCampaign,
     };
