@@ -4,20 +4,42 @@ import { useState } from "react";
 import { getClickId } from "../lib/clickid";
 import ThumbtackRequestFlowModal from "./ThumbtackRequestFlowModal";
 
-export default function ProSearch({ category = "", buttonLabel = "Compare Quotes" }) {
+// Used on the homepage where there is no fixed vertical. On category pages
+// (e.g. /bathroom) a `category` prop is passed and the picker is hidden.
+const DEFAULT_CATEGORIES = [
+  { label: "Bathroom Remodeling", query: "bathroom remodeling" },
+  { label: "Kitchen Remodeling", query: "kitchen remodeling" },
+  { label: "Roofing", query: "roofing" },
+  { label: "Flooring", query: "flooring installation" },
+];
+
+export default function ProSearch({
+  category = "",
+  buttonLabel = "Compare Quotes",
+  categories = DEFAULT_CATEGORIES,
+}) {
   const [pros, setPros] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [selectedPro, setSelectedPro] = useState(null);
 
-  async function searchPros(zip) {
+  // When no fixed category is provided, let the user pick one. Thumbtack's
+  // businesses/search requires a searchQuery (or categoryID), so a ZIP-only
+  // search always fails — the picker guarantees we send one.
+  const showCategoryPicker = !category;
+  const [pickedQuery, setPickedQuery] = useState(categories[0]?.query || "");
+
+  async function searchPros(zip, query) {
     setError("");
     if (!zip) return;
+    if (!query) {
+      setError("Please choose a service category.");
+      return;
+    }
 
     setLoading(true);
     try {
-      const params = new URLSearchParams({ zip });
-      if (category) params.set("query", category);
+      const params = new URLSearchParams({ zip, query });
       const clickId = getClickId();
       if (clickId) params.set("clickId", clickId);
 
@@ -39,13 +61,35 @@ export default function ProSearch({ category = "", buttonLabel = "Compare Quotes
     <>
       <form
         className="grid"
-        style={{ gridTemplateColumns: "1fr auto", gap: 12, maxWidth: 520 }}
+        style={{
+          gridTemplateColumns: showCategoryPicker ? "1fr 1fr auto" : "1fr auto",
+          gap: 12,
+          maxWidth: showCategoryPicker ? 680 : 520,
+        }}
         onSubmit={(e) => {
           e.preventDefault();
-          const zip = new FormData(e.currentTarget).get("zip")?.toString()?.trim();
-          searchPros(zip);
+          const form = new FormData(e.currentTarget);
+          const zip = form.get("zip")?.toString()?.trim();
+          const query = category || pickedQuery;
+          searchPros(zip, query);
         }}
       >
+        {showCategoryPicker ? (
+          <select
+            className="input"
+            name="category"
+            aria-label="Service category"
+            value={pickedQuery}
+            onChange={(e) => setPickedQuery(e.target.value)}
+          >
+            {categories.map((c) => (
+              <option key={c.query} value={c.query}>
+                {c.label}
+              </option>
+            ))}
+          </select>
+        ) : null}
+
         <input
           className="input"
           name="zip"
@@ -71,15 +115,18 @@ export default function ProSearch({ category = "", buttonLabel = "Compare Quotes
           <div className="grid cols4">
             {pros.map((p) => (
               <button
-                key={p?.id || p?.business_id || p?.name}
+                key={p?.businessID || p?.businessName}
                 type="button"
                 className="card"
                 onClick={() => setSelectedPro(p)}
                 style={{ textAlign: "left" }}
               >
-                <div style={{ fontSize: 18, fontWeight: 650 }}>{p?.name || "Pro"}</div>
+                <div style={{ fontSize: 18, fontWeight: 650 }}>{p?.businessName || "Pro"}</div>
                 <div style={{ color: "var(--muted)", marginTop: 6 }}>
-                  {p?.business_name || p?.description || ""}
+                  {p?.businessLocation || ""}
+                  {typeof p?.rating === "number" && p.rating > 0
+                    ? `${p?.businessLocation ? " · " : ""}★ ${p.rating.toFixed(2)} (${p?.numberOfReviews || 0})`
+                    : ""}
                 </div>
                 <div style={{ marginTop: 12, color: "var(--accent)" }}>Request a quote →</div>
               </button>
