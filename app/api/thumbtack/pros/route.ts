@@ -82,7 +82,7 @@ export async function GET(request: Request) {
     if (clickId) utmData.utm_content = clickId;
 
     const body = JSON.stringify({
-      ...(query ? { query } : {}),
+      ...(query ? { searchQuery: query } : {}),
       ...(zip ? { zipCode: zip } : {}),
       utmData,
     });
