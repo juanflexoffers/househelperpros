@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getAccessToken } from "../../../lib/thumbtack-auth";
 
 export const runtime = "nodejs";
 
@@ -25,18 +26,12 @@ function assertNoDoubleApiPrefix(baseUrl: string) {
   const p = u.pathname.replace(/\/+$/, "");
   if (p.endsWith("/api/v4")) {
     throw new Error(
-      "THUMBTACK_API_BASE_URL should be the host only (e.g. https://staging-api.thumbtack.com). Do not include /api/v4."
+      "THUMBTACK_API_BASE_URL should be the host only (e.g. https://staging-pro-api.thumbtack.com). Do not include /api/v4."
     );
   }
 }
 
 const THUMBTACK_API_BASE_URL = normalizeBaseUrl(THUMBTACK_API_BASE_URL_RAW);
-
-function requireEnv(name: string) {
-  const v = process.env[name];
-  if (!v || v.trim() === "") throw new Error(`Missing env var: ${name}`);
-  return v;
-}
 
 export async function GET(request: Request) {
   try {
@@ -47,19 +42,6 @@ export async function GET(request: Request) {
     }
 
     assertNoDoubleApiPrefix(THUMBTACK_API_BASE_URL);
-
-    // Preferred auth (if Thumbtack provided an access token)
-    const accessToken = (process.env.THUMBTACK_ACCESS_TOKEN || "").trim();
-
-    // Back-compat: if only client credentials were provided, we *may* still be able to use Basic.
-    const clientId = (process.env.THUMBTACK_CLIENT_ID || "").trim();
-    const clientSecret = (process.env.THUMBTACK_CLIENT_SECRET || "").trim();
-
-    if (!accessToken && (!clientId || !clientSecret)) {
-      throw new Error(
-        "Missing auth. Set THUMBTACK_ACCESS_TOKEN (preferred) or THUMBTACK_CLIENT_ID + THUMBTACK_CLIENT_SECRET."
-      );
-    }
 
     const { searchParams } = new URL(request.url);
     const query = searchParams.get("query") || "";
@@ -73,31 +55,45 @@ export async function GET(request: Request) {
       );
     }
 
+    // OAuth2 client_credentials exchange. getAccessToken caches in memory
+    // until the token's TTL (typically 3600s) minus a 60s buffer.
+    const accessToken = await getAccessToken();
+
     // Thumbtack docs call out /businesses/search returning widgets.requestFlowURL.
     // Their current Partner Platform is versioned under /api/v4.
     // Note: this endpoint is **POST** on the Partner Platform (GET returns 405).
     const url = new URL("/api/v4/businesses/search", THUMBTACK_API_BASE_URL);
 
-    const headers: Record<string, string> = {
-      Accept: "application/json",
-      "Content-Type": "application/json",
+    // Thumbtack validates camelCase fields: zipCode (not zip_code) and a
+    // required utmData object. utmData is also how the FlexOffers ClickID is
+    // attributed back in Thumbtack reports (utmContent carries the ClickID).
+    const utmCampaign = query || "general";
+    // Thumbtack quirk: the top-level fields are camelCase (zipCode, utmData)
+    // but the keys *inside* utmData are snake_case (utm_source, ...).
+    // utm_source must match Thumbtack's partner-source pattern
+    // ^cma-[a-zA-Z0-9-_]+$ — Thumbtack assigns this code. Override the value
+    // via THUMBTACK_UTM_SOURCE once Thumbtack provides the real one.
+    const utmSource = (process.env.THUMBTACK_UTM_SOURCE || "cma-househelperpros").trim();
+    const utmData: Record<string, string> = {
+      utm_source: utmSource,
+      utm_medium: "flexoffers",
+      utm_campaign: utmCampaign,
     };
+    if (clickId) utmData.utm_content = clickId;
 
     const body = JSON.stringify({
-      ...(query ? { query } : {}),
-      ...(zip ? { zip_code: zip } : {}),
+      ...(query ? { searchQuery: query } : {}),
+      ...(zip ? { zipCode: zip } : {}),
+      utmData,
     });
-
-    if (accessToken) {
-      headers.Authorization = `Bearer ${accessToken}`;
-    } else {
-      const auth = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
-      headers.Authorization = `Basic ${auth}`;
-    }
 
     const resp = await fetch(url.toString(), {
       method: "POST",
-      headers,
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
       body,
       cache: "no-store",
     });
@@ -141,26 +137,11 @@ export async function GET(request: Request) {
       );
     }
 
-    // Decorate each pro's Request Flow URL with attribution params so Thumbtack
-    // reports back the FlexOffers ClickID for each lead. utm_content carries
-    // the ClickID; utm_campaign carries the category (or "general").
-    if (data && Array.isArray(data.data)) {
-      const utmCampaign = query || "general";
-      for (const pro of data.data) {
-        const raw = pro?.widgets?.requestFlowURL;
-        if (typeof raw !== "string" || !raw) continue;
-        try {
-          const u = new URL(raw);
-          u.searchParams.set("utm_source", "househelperpros");
-          u.searchParams.set("utm_medium", "flexoffers");
-          u.searchParams.set("utm_campaign", utmCampaign);
-          if (clickId) u.searchParams.set("utm_content", clickId);
-          pro.widgets.requestFlowURL = u.toString();
-        } catch {
-          // Leave URL untouched if Thumbtack ever returns a non-URL value.
-        }
-      }
-    }
+    // Attribution is applied server-side by Thumbtack from the utmData we sent
+    // in the request body: the returned requestFlowURL / servicePageURL already
+    // carry utm_source=<cma-...>, utm_campaign and utm_content=<ClickID>.
+    // We intentionally do NOT rewrite those params here — doing so would clobber
+    // Thumbtack's validated utm_source with an invalid value and break reporting.
 
     // Do not log response body; return to client.
     return NextResponse.json({ ok: true, ...data }, { headers: { "Cache-Control": "no-store" } });
