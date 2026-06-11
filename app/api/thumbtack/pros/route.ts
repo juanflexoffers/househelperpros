@@ -137,25 +137,11 @@ export async function GET(request: Request) {
       );
     }
 
-    // Decorate each pro's Request Flow URL with attribution params so Thumbtack
-    // reports back the FlexOffers ClickID for each lead. utm_content carries
-    // the ClickID; utm_campaign carries the category (or "general").
-    if (data && Array.isArray(data.data)) {
-      for (const pro of data.data) {
-        const raw = pro?.widgets?.requestFlowURL;
-        if (typeof raw !== "string" || !raw) continue;
-        try {
-          const u = new URL(raw);
-          u.searchParams.set("utm_source", "househelperpros");
-          u.searchParams.set("utm_medium", "flexoffers");
-          u.searchParams.set("utm_campaign", utmCampaign);
-          if (clickId) u.searchParams.set("utm_content", clickId);
-          pro.widgets.requestFlowURL = u.toString();
-        } catch {
-          // Leave URL untouched if Thumbtack ever returns a non-URL value.
-        }
-      }
-    }
+    // Attribution is applied server-side by Thumbtack from the utmData we sent
+    // in the request body: the returned requestFlowURL / servicePageURL already
+    // carry utm_source=<cma-...>, utm_campaign and utm_content=<ClickID>.
+    // We intentionally do NOT rewrite those params here — doing so would clobber
+    // Thumbtack's validated utm_source with an invalid value and break reporting.
 
     // Do not log response body; return to client.
     return NextResponse.json({ ok: true, ...data }, { headers: { "Cache-Control": "no-store" } });
