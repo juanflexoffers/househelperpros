@@ -64,9 +64,21 @@ export async function GET(request: Request) {
     // Note: this endpoint is **POST** on the Partner Platform (GET returns 405).
     const url = new URL("/api/v4/businesses/search", THUMBTACK_API_BASE_URL);
 
+    // Thumbtack validates camelCase fields: zipCode (not zip_code) and a
+    // required utmData object. utmData is also how the FlexOffers ClickID is
+    // attributed back in Thumbtack reports (utmContent carries the ClickID).
+    const utmCampaign = query || "general";
+    const utmData: Record<string, string> = {
+      utmSource: "househelperpros",
+      utmMedium: "flexoffers",
+      utmCampaign,
+    };
+    if (clickId) utmData.utmContent = clickId;
+
     const body = JSON.stringify({
       ...(query ? { query } : {}),
-      ...(zip ? { zip_code: zip } : {}),
+      ...(zip ? { zipCode: zip } : {}),
+      utmData,
     });
 
     const resp = await fetch(url.toString(), {
@@ -123,7 +135,6 @@ export async function GET(request: Request) {
     // reports back the FlexOffers ClickID for each lead. utm_content carries
     // the ClickID; utm_campaign carries the category (or "general").
     if (data && Array.isArray(data.data)) {
-      const utmCampaign = query || "general";
       for (const pro of data.data) {
         const raw = pro?.widgets?.requestFlowURL;
         if (typeof raw !== "string" || !raw) continue;
