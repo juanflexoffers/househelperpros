@@ -68,12 +68,14 @@ export async function GET(request: Request) {
     // required utmData object. utmData is also how the FlexOffers ClickID is
     // attributed back in Thumbtack reports (utmContent carries the ClickID).
     const utmCampaign = query || "general";
+    // Thumbtack quirk: the top-level fields are camelCase (zipCode, utmData)
+    // but the keys *inside* utmData are snake_case (utm_source, ...).
     const utmData: Record<string, string> = {
-      utmSource: "househelperpros",
-      utmMedium: "flexoffers",
-      utmCampaign,
+      utm_source: "househelperpros",
+      utm_medium: "flexoffers",
+      utm_campaign: utmCampaign,
     };
-    if (clickId) utmData.utmContent = clickId;
+    if (clickId) utmData.utm_content = clickId;
 
     const body = JSON.stringify({
       ...(query ? { query } : {}),
