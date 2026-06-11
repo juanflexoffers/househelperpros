@@ -67,7 +67,7 @@ export default function ThumbtackRequestFlowModal({ pro, open, onClose }) {
           }}
         >
           <div style={{ fontWeight: 650 }}>
-            {pro?.name ? `Request a quote — ${pro.name}` : "Request a quote"}
+            {pro?.businessName ? `Request a quote — ${pro.businessName}` : "Request a quote"}
           </div>
           <button className="btn" type="button" onClick={onClose}>
             Close
